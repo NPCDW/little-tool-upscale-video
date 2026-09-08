@@ -1,0 +1,17 @@
+$:
+  vscode:
+    - docker:
+        image: docker.cnb.cool/my-codespace/dev-image-build/rust:latest
+      services:
+        - vscode
+        - docker
+  push:
+    - imports: https://cnb.cool/my-codespace/envs/-/blob/main/github-secret.yml
+      stages:
+        - name: sync to github
+          image: tencentcom/git-sync
+          settings:
+            target_url: https://github.com/NPCDW/little-tool-upscale-video.git
+            auth_type: https
+            username: ${GITHUB_USERNAME}
+            password: ${GITHUB_ACCESS_TOKEN}
