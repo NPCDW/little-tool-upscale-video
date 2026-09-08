@@ -591,7 +591,7 @@ fn run() -> Result<()> {
     let status = Command::new(&ffmpeg)
         .current_dir(&exe_dir)
         .args([
-            "-framerate",
+            "-r",
             &fps_raw,
             "-i",
             out_frame_pattern.to_str().unwrap(),
