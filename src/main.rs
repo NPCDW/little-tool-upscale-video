@@ -568,9 +568,11 @@ fn run() -> Result<()> {
         bail!("ffprobe 检测帧率失败");
     }
 
-    let fps_raw = String::from_utf8_lossy(&fps_output.stdout)
-        .trim()
-        .to_string();
+    let fps_raw = String::from_utf8_lossy(&fps_output.stdout).lines()
+        .map(|line| line.trim())
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .unwrap_or_default();
     if fps_raw.is_empty() {
         bail!("ffprobe 未能获取帧率信息");
     }
