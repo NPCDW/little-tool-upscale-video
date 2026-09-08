@@ -302,18 +302,19 @@ fn run() -> Result<()> {
     );
 
     // 显示 ffmpeg 版本
-    if let Some(ver) = ffmpeg_version(&ffmpeg) {
-        println!("  {} {}", "🎬".bold(), ver.green());
-    } else {
-        println!(
+    let ffmpeg_ver = ffmpeg_version(&ffmpeg);
+    match &ffmpeg_ver {
+        Some(ver) => println!("  {} {}", "🎬".bold(), ver.green()),
+        None => println!(
             "  {} ffmpeg 未找到（路径: {}）",
             "✖".red().bold(),
             ffmpeg.red()
-        );
+        ),
     }
 
     // 显示 realesrgan 状态
-    if exe_exists(&realesrgan) {
+    let realesrgan_ok = exe_exists(&realesrgan);
+    if realesrgan_ok {
         println!(
             "  {} realesrgan-ncnn-vulkan: {} ({})",
             "✔".green().bold(),
@@ -325,6 +326,21 @@ fn run() -> Result<()> {
             "  {} realesrgan-ncnn-vulkan 未找到（路径: {}）",
             "✖".red().bold(),
             realesrgan.red()
+        );
+    }
+
+    // 必要工具缺失时直接退出，不执行后续流程
+    let mut missing: Vec<String> = Vec::new();
+    if ffmpeg_ver.is_none() {
+        missing.push(format!("ffmpeg（路径: {}）", ffmpeg));
+    }
+    if !realesrgan_ok {
+        missing.push(format!("realesrgan-ncnn-vulkan（路径: {}）", realesrgan));
+    }
+    if !missing.is_empty() {
+        bail!(
+            "以下必要工具未找到，无法继续运行：\n  - {}\n请检查 config.yaml 中的路径配置。",
+            missing.join("\n  - ")
         );
     }
 
