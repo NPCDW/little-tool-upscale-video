@@ -1,6 +1,6 @@
 [package]
 name = "little-tool-upscale-video"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "视频 AI 放大工具 (Real-ESRGAN + FFmpeg)"
 
