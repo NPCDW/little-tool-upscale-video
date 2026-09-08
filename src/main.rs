@@ -23,26 +23,65 @@ struct Config {
     ffprobe_path: String,
     /// realesrgan-ncnn-vulkan 可执行文件路径
     realesrgan_path: String,
+    /// Real-ESRGAN 使用的模型名（-n 参数）
+    /// 可选: realesr-animevideov3 | realesrgan-x4plus | realesrgan-x4plus-anime | realesrnet-x4plus
+    realesrgan_model: String,
+    /// 放大倍数（-s 参数），可选: 2 | 3 | 4
+    realesrgan_scale: u32,
 }
 
 impl Config {
-    /// 根据程序所在目录生成默认配置
-    fn default_for(exe_dir: &Path) -> Self {
-        let exe_str = |name: &str| -> String {
-            // Windows 下附加 .exe，其他平台不加
-            #[cfg(target_os = "windows")]
-            let name = format!("{}.exe", name);
-            #[cfg(not(target_os = "windows"))]
-            let name = name.to_string();
-            exe_dir.join(&name).to_string_lossy().into_owned()
-        };
-
+    /// 默认配置
+    /// 所有路径一律写成【相对路径】，运行时以程序所在目录为基准解析，
+    /// 这样整个目录被搬到任何位置都无需修改配置。
+    fn default_for(_exe_dir: &Path) -> Self {
         Config {
-            output_dir: exe_dir.to_string_lossy().into_owned(),
-            ffmpeg_path: exe_str("ffmpeg"),
-            ffprobe_path: exe_str("ffprobe"),
-            realesrgan_path: exe_str("realesrgan-ncnn-vulkan"),
+            // 留空 = 程序所在目录
+            output_dir: String::new(),
+            ffmpeg_path: "ffmpeg".to_string(),
+            ffprobe_path: "ffprobe".to_string(),
+            realesrgan_path: "realesrgan-ncnn-vulkan".to_string(),
+            realesrgan_model: "realesr-animevideov3".to_string(),
+            realesrgan_scale: 2,
         }
+    }
+
+    /// 生成带内联注释的 YAML 配置文件内容
+    fn to_commented_yaml(&self) -> String {
+        format!(
+            r#"# 视频 AI 放大工具 配置文件
+# ─────────────────────────────────────────────
+# 工作目录：本程序所在目录（配置文件、临时目录均在此）
+# 路径规则：所有路径都支持相对路径，且一律以【程序所在目录】为基准解析。
+#           若指定路径不存在，会自动回退查找：
+#             程序目录 → 程序目录/bin → 系统 PATH
+
+# 视频放大默认存储目录（留空则使用程序所在目录）
+output_dir: "{}"
+
+# ffmpeg 可执行文件（可只写文件名，如 ffmpeg 或 bin/ffmpeg）
+ffmpeg_path: "{}"
+
+# ffprobe 可执行文件（通常与 ffmpeg 同目录）
+ffprobe_path: "{}"
+
+# realesrgan-ncnn-vulkan 可执行文件
+realesrgan_path: "{}"
+
+# 使用的模型名（-n 参数）
+# 可选: realesr-animevideov3 | realesrgan-x4plus | realesrgan-x4plus-anime | realesrnet-x4plus
+realesrgan_model: "{}"
+
+# 放大倍数（-s 参数），可选: 2 | 3 | 4
+realesrgan_scale: {}
+"#,
+            self.output_dir,
+            self.ffmpeg_path,
+            self.ffprobe_path,
+            self.realesrgan_path,
+            self.realesrgan_model,
+            self.realesrgan_scale,
+        )
     }
 }
 
@@ -52,17 +91,7 @@ impl Config {
 
 const CONFIG_FILENAME: &str = "config.yaml";
 
-fn config_comment() -> &'static str {
-    r#"# 视频 AI 放大工具 配置文件
-# ─────────────────────────────────────────────
-# output_dir     : 视频放大默认存储目录（留空或路径不存在则使用程序所在目录）
-# ffmpeg_path    : ffmpeg  可执行文件路径
-# ffprobe_path   : ffprobe 可执行文件路径（通常与 ffmpeg 同目录）
-# realesrgan_path: realesrgan-ncnn-vulkan 可执行文件路径
-# ─────────────────────────────────────────────
 
-"#
-}
 
 fn load_or_create_config(exe_dir: &Path) -> Result<Config> {
     let config_path = exe_dir.join(CONFIG_FILENAME);
@@ -70,9 +99,7 @@ fn load_or_create_config(exe_dir: &Path) -> Result<Config> {
     if !config_path.exists() {
         // 首次运行：生成默认配置
         let default_cfg = Config::default_for(exe_dir);
-        let yaml = serde_yaml::to_string(&default_cfg)
-            .context("序列化默认配置失败")?;
-        let content = format!("{}{}", config_comment(), yaml);
+        let content = default_cfg.to_commented_yaml();
         fs::write(&config_path, &content)
             .with_context(|| format!("无法写入配置文件: {}", config_path.display()))?;
         println!(
@@ -104,21 +131,81 @@ fn prompt(message: &str) -> Result<String> {
 }
 
 // ─────────────────────────────────────────────
-// 辅助：检查可执行文件是否存在
+// 辅助：路径解析（一切以程序所在目录为基准）
 // ─────────────────────────────────────────────
 
+/// 把任意路径转成绝对路径：
+/// - 绝对路径：原样返回
+/// - 相对路径：以程序所在目录（base）为基准拼接
+fn resolve_path(base: &Path, path: &str) -> PathBuf {
+    let p = PathBuf::from(path.trim().trim_matches('"').trim_matches('\'').trim());
+    if p.is_absolute() {
+        p
+    } else {
+        base.join(p)
+    }
+}
+
+/// 在系统 PATH 中查找可执行文件（只做文件查找，不实际运行，避免副作用）
+fn find_in_path(exe_name: &str) -> Option<PathBuf> {
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
+        .map(|dir| dir.join(exe_name))
+        .find(|cand| cand.is_file())
+}
+
+/// 解析外部工具（ffmpeg / ffprobe / realesrgan）的可执行文件路径。
+/// 查找顺序：
+///   1. 配置中指定的路径（相对路径基于程序目录解析；若指定的是目录则在其下找exe）
+///   2. 程序目录/<exe_name>
+///   3. 程序目录/bin/<exe_name>
+///   4. 系统 PATH
+/// 都找不到时返回第 1 项（便于报错时展示用户配置的路径）。
+fn resolve_tool(exe_dir: &Path, configured: &str, tool_name: &str) -> String {
+    #[cfg(target_os = "windows")]
+    let exe_name = format!("{}.exe", tool_name);
+    #[cfg(not(target_os = "windows"))]
+    let exe_name = tool_name.to_string();
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if !configured.trim().is_empty() {
+        let configured_path = resolve_path(exe_dir, configured);
+        candidates.push(configured_path.clone());
+        // 配置项可能只写到"所在目录"
+        candidates.push(configured_path.join(&exe_name));
+    }
+    candidates.push(exe_dir.join(&exe_name));
+    candidates.push(exe_dir.join("bin").join(&exe_name));
+
+    for cand in &candidates {
+        if cand.is_file() {
+            return cand.to_string_lossy().into_owned();
+        }
+    }
+
+    if let Some(found) = find_in_path(&exe_name) {
+        return found.to_string_lossy().into_owned();
+    }
+
+    candidates
+        .first()
+        .cloned()
+        .unwrap_or_else(|| exe_dir.join(&exe_name))
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// 检查可执行文件是否可用（已解析出的路径）
 fn exe_exists(path: &str) -> bool {
-    // 优先检查直接路径
-    if Path::new(path).exists() {
+    if Path::new(path).is_file() {
         return true;
     }
-    // 再用 which 风格：直接运行 --help / -version 探测
-    Command::new(path)
-        .arg("-version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(find_in_path)
+        .is_some()
 }
 
 // ─────────────────────────────────────────────
@@ -167,7 +254,7 @@ fn cleanup(dirs: &[&Path]) {
 // ─────────────────────────────────────────────
 
 fn run() -> Result<()> {
-    // 确定工作目录：exe 所在目录
+    // 确定工作目录：程序所在目录（所有相对路径、配置文件、临时目录都以它为基准）
     let exe_path = std::env::current_exe().context("无法获取程序路径")?;
     let exe_dir = exe_path
         .parent()
@@ -181,11 +268,16 @@ fn run() -> Result<()> {
     // ── 读取/生成配置 ──────────────────────────
     let cfg = load_or_create_config(&exe_dir)?;
 
-    // 解析输出目录（配置若为空则用 exe_dir）
+    // 以程序所在目录为基准解析外部工具路径
+    let ffmpeg = resolve_tool(&exe_dir, &cfg.ffmpeg_path, "ffmpeg");
+    let ffprobe = resolve_tool(&exe_dir, &cfg.ffprobe_path, "ffprobe");
+    let realesrgan = resolve_tool(&exe_dir, &cfg.realesrgan_path, "realesrgan-ncnn-vulkan");
+
+    // 解析输出目录（配置留空则用程序所在目录；相对路径基于程序所在目录）
     let default_output_dir = if cfg.output_dir.trim().is_empty() {
         exe_dir.clone()
     } else {
-        PathBuf::from(&cfg.output_dir)
+        resolve_path(&exe_dir, &cfg.output_dir)
     };
 
     // ── 欢迎信息 ──────────────────────────────
@@ -199,34 +291,40 @@ fn run() -> Result<()> {
     println!();
 
     println!(
+        "  {} 工作目录(程序所在目录): {}",
+        "🗂".bold(),
+        exe_dir.display().to_string().cyan()
+    );
+    println!(
         "  {} 默认输出目录: {}",
         "📁".bold(),
         default_output_dir.display().to_string().cyan()
     );
 
     // 显示 ffmpeg 版本
-    if let Some(ver) = ffmpeg_version(&cfg.ffmpeg_path) {
+    if let Some(ver) = ffmpeg_version(&ffmpeg) {
         println!("  {} {}", "🎬".bold(), ver.green());
     } else {
         println!(
             "  {} ffmpeg 未找到（路径: {}）",
             "✖".red().bold(),
-            cfg.ffmpeg_path.red()
+            ffmpeg.red()
         );
     }
 
     // 显示 realesrgan 状态
-    if exe_exists(&cfg.realesrgan_path) {
+    if exe_exists(&realesrgan) {
         println!(
-            "  {} realesrgan-ncnn-vulkan: {}",
+            "  {} realesrgan-ncnn-vulkan: {} ({})",
             "✔".green().bold(),
-            "已找到".green()
+            "已找到".green(),
+            realesrgan.bright_black()
         );
     } else {
         println!(
             "  {} realesrgan-ncnn-vulkan 未找到（路径: {}）",
             "✖".red().bold(),
-            cfg.realesrgan_path.red()
+            realesrgan.red()
         );
     }
 
@@ -235,23 +333,23 @@ fn run() -> Result<()> {
     println!();
 
     // ── 用户输入 ──────────────────────────────
-    let input_video_str = prompt("请输入视频文件路径 (可直接拖入文件): ")?;
+    let input_video_str = prompt("请输入视频文件路径 (可直接拖入文件，相对路径基于工作目录): ")?;
     if input_video_str.is_empty() {
         bail!("视频路径不能为空");
     }
-    let input_video = PathBuf::from(&input_video_str);
+    let input_video = resolve_path(&exe_dir, &input_video_str);
     if !input_video.exists() {
         bail!("视频文件不存在: {}", input_video.display());
     }
 
     let output_dir_str = prompt(&format!(
-        "请输入输出目录 (留空使用默认 {}): ",
+        "请输入输出目录 (留空使用默认 {}，相对路径基于工作目录): ",
         default_output_dir.display()
     ))?;
     let output_dir = if output_dir_str.is_empty() {
         default_output_dir.clone()
     } else {
-        PathBuf::from(&output_dir_str)
+        resolve_path(&exe_dir, &output_dir_str)
     };
 
     // 确保输出目录存在
@@ -290,7 +388,8 @@ fn run() -> Result<()> {
     );
 
     let frame_pattern = input_tmp.join("frame%08d.png");
-    let status = Command::new(&cfg.ffmpeg_path)
+    let status = Command::new(&ffmpeg)
+        .current_dir(&exe_dir)
         .args([
             "-i",
             input_video.to_str().unwrap(),
@@ -305,7 +404,7 @@ fn run() -> Result<()> {
             frame_pattern.to_str().unwrap(),
         ])
         .status()
-        .with_context(|| format!("启动 ffmpeg 失败，请检查路径: {}", cfg.ffmpeg_path))?;
+        .with_context(|| format!("启动 ffmpeg 失败，请检查路径: {}", ffmpeg))?;
 
     if !status.success() {
         cleanup(&[&input_tmp, &output_tmp]);
@@ -321,10 +420,37 @@ fn run() -> Result<()> {
     println!();
 
     // ── Step 2: Real-ESRGAN 放大（内联进度条）──
+    // 验证配置值
+    let valid_models = [
+        "realesr-animevideov3",
+        "realesrgan-x4plus",
+        "realesrgan-x4plus-anime",
+        "realesrnet-x4plus",
+    ];
+    if !valid_models.contains(&cfg.realesrgan_model.as_str()) {
+        cleanup(&[&input_tmp, &output_tmp]);
+        bail!(
+            "不支持的模型名 \"{}\", 可选值: {}",
+            cfg.realesrgan_model,
+            valid_models.join(" | ")
+        );
+    }
+    if ![2u32, 3, 4].contains(&cfg.realesrgan_scale) {
+        cleanup(&[&input_tmp, &output_tmp]);
+        bail!(
+            "不支持的放大倍数 {}, 可选值: 2 | 3 | 4",
+            cfg.realesrgan_scale
+        );
+    }
+    let scale_str = cfg.realesrgan_scale.to_string();
+
     println!(
         "{} {}",
         "[Step 2]".cyan().bold(),
-        "正在调用 Real-ESRGAN 进行 AI 放大 (2x)...".bold()
+        format!(
+            "正在调用 Real-ESRGAN 进行 AI 放大 ({}x, 模型: {})...",
+            cfg.realesrgan_scale, cfg.realesrgan_model
+        ).bold()
     );
 
     // 设置进度条
@@ -339,16 +465,17 @@ fn run() -> Result<()> {
     pb.set_message("处理中...");
 
     // 启动 realesrgan 子进程（后台，不独占终端）
-    let mut child = Command::new(&cfg.realesrgan_path)
+    let mut child = Command::new(&realesrgan)
+        .current_dir(&exe_dir)
         .args([
             "-i",
             input_tmp.to_str().unwrap(),
             "-o",
             output_tmp.to_str().unwrap(),
             "-n",
-            "realesr-animevideov3",
+            cfg.realesrgan_model.as_str(),
             "-s",
-            "2",
+            scale_str.as_str(),
             "-f",
             "png",
         ])
@@ -358,7 +485,7 @@ fn run() -> Result<()> {
         .with_context(|| {
             format!(
                 "启动 realesrgan-ncnn-vulkan 失败，请检查路径: {}",
-                cfg.realesrgan_path
+                realesrgan
             )
         })?;
 
@@ -402,7 +529,8 @@ fn run() -> Result<()> {
         "正在检测原始视频帧率...".bold()
     );
 
-    let fps_output = Command::new(&cfg.ffprobe_path)
+    let fps_output = Command::new(&ffprobe)
+        .current_dir(&exe_dir)
         .args([
             "-v",
             "error",
@@ -415,7 +543,7 @@ fn run() -> Result<()> {
             input_video.to_str().unwrap(),
         ])
         .output()
-        .with_context(|| format!("启动 ffprobe 失败，请检查路径: {}", cfg.ffprobe_path))?;
+        .with_context(|| format!("启动 ffprobe 失败，请检查路径: {}", ffprobe))?;
 
     if !fps_output.status.success() {
         cleanup(&[&input_tmp, &output_tmp]);
@@ -443,7 +571,8 @@ fn run() -> Result<()> {
     let out_frame_pattern = output_tmp.join("frame%08d.png");
     let out_file = output_dir.join(format!("out_{}.mp4", filename));
 
-    let status = Command::new(&cfg.ffmpeg_path)
+    let status = Command::new(&ffmpeg)
+        .current_dir(&exe_dir)
         .args([
             "-r",
             &fps_raw,
