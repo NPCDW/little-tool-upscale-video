@@ -276,7 +276,7 @@ fn run() -> Result<()> {
     let ffprobe = resolve_tool(&exe_dir, &cfg.ffprobe_path, "ffprobe");
     let realesrgan = resolve_tool(&exe_dir, &cfg.realesrgan_path, "realesrgan-ncnn-vulkan");
 
-    // 解析输出目录（配置留空则使用工作目录下的 out；相对路径基于工作目录）
+    // 解析输出目录（配置留空则使用工作目录下的 out 目录）
     let default_output_dir = if cfg.output_dir.trim().is_empty() {
         resolve_path(&exe_dir, DEFAULT_OUTPUT_DIRNAME)
     } else {
@@ -352,7 +352,7 @@ fn run() -> Result<()> {
     println!();
 
     // ── 用户输入 ──────────────────────────────
-    let input_video_str = prompt("请输入视频文件路径 (可直接拖入文件，相对路径基于工作目录): ")?;
+    let input_video_str = prompt("请输入视频文件路径 (可直接拖入文件): ")?;
     if input_video_str.is_empty() {
         bail!("视频路径不能为空");
     }
