@@ -130,6 +130,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
+name = "little-tool-upscale-video"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "colored",
+ "indicatif",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,17 +271,6 @@ name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
-
-[[package]]
-name = "upscale-video"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "colored",
- "indicatif",
- "serde",
- "serde_yaml",
-]
 
 [[package]]
 name = "wasm-bindgen"

@@ -1,11 +1,11 @@
 [package]
-name = "upscale-video"
+name = "little-tool-upscale-video"
 version = "0.1.0"
 edition = "2024"
 description = "视频 AI 放大工具 (Real-ESRGAN + FFmpeg)"
 
 [[bin]]
-name = "upscale-video"
+name = "little-tool-upscale-video"
 path = "src/main.rs"
 
 [dependencies]
