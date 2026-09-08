@@ -431,7 +431,6 @@ fn run() -> Result<()> {
         .with_context(|| format!("启动 ffmpeg 失败，请检查路径: {}", ffmpeg))?;
 
     if !status.success() {
-        cleanup(&[&input_tmp, &output_tmp]);
         bail!("FFmpeg 导出帧失败（退出码: {:?}）", status.code());
     }
 
@@ -452,7 +451,6 @@ fn run() -> Result<()> {
         "realesrnet-x4plus",
     ];
     if !valid_models.contains(&cfg.realesrgan_model.as_str()) {
-        cleanup(&[&input_tmp, &output_tmp]);
         bail!(
             "不支持的模型名 \"{}\", 可选值: {}",
             cfg.realesrgan_model,
@@ -460,7 +458,6 @@ fn run() -> Result<()> {
         );
     }
     if ![2u32, 3, 4].contains(&cfg.realesrgan_scale) {
-        cleanup(&[&input_tmp, &output_tmp]);
         bail!(
             "不支持的放大倍数 {}, 可选值: 2 | 3 | 4",
             cfg.realesrgan_scale
@@ -524,7 +521,6 @@ fn run() -> Result<()> {
                 pb.set_position(count_files_in_dir(&output_tmp) as u64);
                 pb.finish_with_message("完成！");
                 if !exit_status.success() {
-                    cleanup(&[&input_tmp, &output_tmp]);
                     bail!(
                         "Real-ESRGAN 处理失败（退出码: {:?}）",
                         exit_status.code()
@@ -538,7 +534,6 @@ fn run() -> Result<()> {
             }
             Err(e) => {
                 pb.abandon_with_message("监控出错");
-                cleanup(&[&input_tmp, &output_tmp]);
                 bail!("等待 Real-ESRGAN 子进程时出错: {}", e);
             }
         }
@@ -570,7 +565,6 @@ fn run() -> Result<()> {
         .with_context(|| format!("启动 ffprobe 失败，请检查路径: {}", ffprobe))?;
 
     if !fps_output.status.success() {
-        cleanup(&[&input_tmp, &output_tmp]);
         bail!("ffprobe 检测帧率失败");
     }
 
@@ -578,7 +572,6 @@ fn run() -> Result<()> {
         .trim()
         .to_string();
     if fps_raw.is_empty() {
-        cleanup(&[&input_tmp, &output_tmp]);
         bail!("ffprobe 未能获取帧率信息");
     }
 
@@ -598,7 +591,7 @@ fn run() -> Result<()> {
     let status = Command::new(&ffmpeg)
         .current_dir(&exe_dir)
         .args([
-            "-r",
+            "-framerate",
             &fps_raw,
             "-i",
             out_frame_pattern.to_str().unwrap(),
@@ -622,7 +615,6 @@ fn run() -> Result<()> {
         .with_context(|| "启动 ffmpeg 合成失败".to_string())?;
 
     if !status.success() {
-        cleanup(&[&input_tmp, &output_tmp]);
         bail!("FFmpeg 合成视频失败（退出码: {:?}）", status.code());
     }
 
