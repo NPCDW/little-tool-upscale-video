@@ -586,7 +586,7 @@ fn run() -> Result<()> {
     );
 
     let out_frame_pattern = output_tmp.join("frame%08d.png");
-    let out_file = output_dir.join(format!("out_{}.mp4", filename));
+    let out_file = output_dir.join(format!("{}.mp4", filename));
 
     let status = Command::new(&ffmpeg)
         .current_dir(&exe_dir)
