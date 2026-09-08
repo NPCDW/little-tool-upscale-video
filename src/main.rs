@@ -592,7 +592,7 @@ fn run() -> Result<()> {
         .current_dir(&exe_dir)
         .args([
             "-r",
-            &fps_raw,
+            fps_raw.as_str(),
             "-i",
             out_frame_pattern.to_str().unwrap(),
             "-i",
@@ -606,7 +606,7 @@ fn run() -> Result<()> {
             "-c:v",
             "libx264",
             "-r",
-            &fps_raw,
+            fps_raw.as_str(),
             "-pix_fmt",
             "yuv420p",
             out_file.to_str().unwrap(),
