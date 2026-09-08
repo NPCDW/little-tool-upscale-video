@@ -13,9 +13,12 @@ use std::time::Duration;
 // 配置结构
 // ─────────────────────────────────────────────
 
+/// 配置文件中未指定（留空）时使用的默认输出目录名（相对工作目录）
+const DEFAULT_OUTPUT_DIRNAME: &str = "out";
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
-    /// 视频放大默认存储目录，留空则使用程序所在目录
+    /// 视频放大默认存储目录，留空则使用工作目录下的 out 目录
     output_dir: String,
     /// ffmpeg 可执行文件路径
     ffmpeg_path: String,
@@ -36,8 +39,8 @@ impl Config {
     /// 这样整个目录被搬到任何位置都无需修改配置。
     fn default_for(_exe_dir: &Path) -> Self {
         Config {
-            // 留空 = 程序所在目录
-            output_dir: String::new(),
+            // 相对路径，基于程序所在目录；留空则回退到 out/
+            output_dir: DEFAULT_OUTPUT_DIRNAME.to_string(),
             ffmpeg_path: "ffmpeg".to_string(),
             ffprobe_path: "ffprobe".to_string(),
             realesrgan_path: "realesrgan-ncnn-vulkan".to_string(),
@@ -56,7 +59,7 @@ impl Config {
 #           若指定路径不存在，会自动回退查找：
 #             程序目录 → 程序目录/bin → 系统 PATH
 
-# 视频放大默认存储目录（留空则使用程序所在目录）
+# 视频放大默认输出目录（相对路径基于工作目录；留空则默认使用 工作目录/out 目录）
 output_dir: "{}"
 
 # ffmpeg 可执行文件（可只写文件名，如 ffmpeg 或 bin/ffmpeg）
@@ -273,9 +276,9 @@ fn run() -> Result<()> {
     let ffprobe = resolve_tool(&exe_dir, &cfg.ffprobe_path, "ffprobe");
     let realesrgan = resolve_tool(&exe_dir, &cfg.realesrgan_path, "realesrgan-ncnn-vulkan");
 
-    // 解析输出目录（配置留空则用程序所在目录；相对路径基于程序所在目录）
+    // 解析输出目录（配置留空则使用工作目录下的 out；相对路径基于工作目录）
     let default_output_dir = if cfg.output_dir.trim().is_empty() {
-        exe_dir.clone()
+        resolve_path(&exe_dir, DEFAULT_OUTPUT_DIRNAME)
     } else {
         resolve_path(&exe_dir, &cfg.output_dir)
     };
@@ -359,7 +362,7 @@ fn run() -> Result<()> {
     }
 
     let output_dir_str = prompt(&format!(
-        "请输入输出目录 (留空使用默认 {}，相对路径基于工作目录): ",
+        "请输入视频放大输出目录 ({}): ",
         default_output_dir.display()
     ))?;
     let output_dir = if output_dir_str.is_empty() {
@@ -367,6 +370,11 @@ fn run() -> Result<()> {
     } else {
         resolve_path(&exe_dir, &output_dir_str)
     };
+    println!(
+        "  {} 输出目录: {}",
+        "📁".bold(),
+        output_dir.display().to_string().cyan()
+    );
 
     // 确保输出目录存在
     fs::create_dir_all(&output_dir)
