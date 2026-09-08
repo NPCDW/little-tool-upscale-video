@@ -1,0 +1,16 @@
+[package]
+name = "upscale-video"
+version = "0.1.0"
+edition = "2024"
+description = "视频 AI 放大工具 (Real-ESRGAN + FFmpeg)"
+
+[[bin]]
+name = "upscale-video"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+colored = "3.1.1"
+indicatif = "0.18.6"
+anyhow = "1"
